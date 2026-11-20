@@ -6,3 +6,4 @@ dataset/
 model/*.keras
 .DS_Store
 *.log
+.env
