@@ -608,10 +608,11 @@ DESKTOP_HTML = f"""<!DOCTYPE html>
                 <i data-lucide="play" class="w-4 h-4"></i>
                 <span>Activar Webcam PC</span>
               </button>
-              <button onclick="openPhoneModal()" class="px-4 py-2.5 rounded-xl bg-blue-600/30 hover:bg-blue-600/50 text-cyan-300 border border-cyan-500/40 font-semibold text-xs transition flex items-center space-x-2">
-                <i data-lucide="smartphone" class="w-4 h-4"></i>
-                <span>Usar Celular</span>
+              <button onclick="document.getElementById('localFileInput').click()" class="px-4 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-cyan-300 border border-gray-700 font-semibold text-xs transition flex items-center space-x-2">
+                <i data-lucide="image" class="w-4 h-4"></i>
+                <span>Cargar Foto de Prueba</span>
               </button>
+              <input type="file" id="localFileInput" accept="image/*" class="hidden" onchange="handleLocalImageUpload(this)">
             </div>
           </div>
         </div>
@@ -921,18 +922,11 @@ DESKTOP_HTML = f"""<!DOCTYPE html>
       const dot = document.getElementById("phoneDot");
       const btnText = document.getElementById("phoneBtnText");
       if (connected) {{
-        dot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+        dot.className = "w-2 h-2 rounded-full bg-emerald-400";
         btnText.innerText = "Celular Vinculado";
-        // Si el usuario no ha cambiado origen manualmente, ofrecer cambio a celular
-        if (currentSource === "pc") {{
-          changeCameraSource("phone");
-        }}
       }} else {{
         dot.className = "w-2 h-2 rounded-full bg-gray-500";
         btnText.innerText = "Enlazar Celular";
-        if (currentSource === "phone") {{
-          changeCameraSource("pc");
-        }}
       }}
     }}
 
@@ -944,7 +938,7 @@ DESKTOP_HTML = f"""<!DOCTYPE html>
       if (src === "phone") {{
         video.classList.add("hidden");
         phoneImg.classList.remove("hidden");
-        label.innerText = "Cámara Celular HD";
+        label.innerText = "Imagen / Foto de Prueba";
         document.getElementById("camInactiveOverlay").classList.add("hidden");
         document.getElementById("reticle").classList.remove("hidden");
       }} else {{
@@ -952,6 +946,18 @@ DESKTOP_HTML = f"""<!DOCTYPE html>
         video.classList.remove("hidden");
         label.innerText = isMirror ? "Cámara PC (Modo Espejo)" : "Cámara PC (Normal)";
         if (!isCameraRunning) startCamera();
+      }}
+    }}
+
+    function handleLocalImageUpload(input) {{
+      if (input.files && input.files[0]) {{
+        const reader = new FileReader();
+        reader.onload = function(e) {{
+          phoneImg.src = e.target.result;
+          changeCameraSource("phone");
+          setTimeout(() => triggerScan(true), 150);
+        }};
+        reader.readAsDataURL(input.files[0]);
       }}
     }}
 
@@ -971,16 +977,23 @@ DESKTOP_HTML = f"""<!DOCTYPE html>
 
     async function startCamera() {{
       try {{
+        if (stream) {{
+          try {{ stream.getTracks().forEach(t => t.stop()); }} catch(e){{}}
+        }}
         stream = await navigator.mediaDevices.getUserMedia({{
-          video: {{ width: {{ ideal: 640 }}, height: {{ ideal: 480 }}, facingMode: "user" }}
+          video: {{ width: {{ ideal: 640 }}, height: {{ ideal: 480 }}, facingMode: "user" }},
+          audio: false
         }});
         video.srcObject = stream;
+        try {{ await video.play(); }} catch(e){{}}
         isCameraRunning = true;
         document.getElementById("camInactiveOverlay").classList.add("hidden");
         document.getElementById("reticle").classList.remove("hidden");
         document.getElementById("camToggleText").innerText = "Pausar";
+        console.log("Webcam local PC iniciada con éxito");
       }} catch (err) {{
         console.warn("Webcam local ocupada o denegada: " + err.message);
+        document.getElementById("camInactiveOverlay").classList.remove("hidden");
       }}
     }}
 
@@ -1027,12 +1040,17 @@ DESKTOP_HTML = f"""<!DOCTYPE html>
         if (!phoneImg.src || phoneImg.src.length < 100) return;
         b64 = phoneImg.src;
       }} else {{
-        if (!isCameraRunning || video.videoWidth === 0) return;
-        canvas.width = 400;
-        canvas.height = 300;
-        ctx.drawImage(video, 0, 0, 400, 300);
-        b64 = canvas.toDataURL("image/jpeg", 0.65);
+        if (!isCameraRunning) return;
+        try {{
+          canvas.width = 400;
+          canvas.height = 300;
+          ctx.drawImage(video, 0, 0, 400, 300);
+          b64 = canvas.toDataURL("image/jpeg", 0.65);
+        }} catch(e) {{
+          return;
+        }}
       }}
+      if (!b64 || b64.length < 100) return;
 
       isPredicting = true;
       if (isManual) {{

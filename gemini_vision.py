@@ -84,12 +84,10 @@ def analizar_con_gemini(imagen_b64: str, api_key: str = None, modelo: str = "gem
     # Reducir peso del frame a alta velocidad
     img_opt = optimizar_imagen(imagen_b64, max_size=384, calidad=65)
 
-    # Modelos ultrarrápidos con soporte de visión en orden de preferencia y resiliencia
+    # Modelos ultrarrápidos con soporte de visión
     modelos_a_probar = [
         "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-3.5-flash-lite",
-        "gemini-flash-latest"
+        "gemini-3.5-flash-lite"
     ]
 
     ultimo_error = None
@@ -118,8 +116,8 @@ def analizar_con_gemini(imagen_b64: str, api_key: str = None, modelo: str = "gem
         }
 
         try:
-            # Usar la sesión persistente con margen para latencia de red móvil
-            resp = _session.post(url, json=payload, timeout=8)
+            # Timeout corto de 3.5s para no congelar la UI si la red falla
+            resp = _session.post(url, json=payload, timeout=3.5)
             if resp.status_code == 200:
                 data = resp.json()
                 text_response = data["candidates"][0]["content"]["parts"][0]["text"].strip()
