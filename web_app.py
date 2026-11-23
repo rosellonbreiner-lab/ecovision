@@ -151,6 +151,7 @@ async def save_api_key(req: SaveKeyRequest):
 
 @app.get("/api/config")
 async def get_config():
+    curr_ip = get_local_ip()
     key = os.getenv("GEMINI_API_KEY", "")
     has_key = bool(key and len(key) > 5)
     masked = f"{key[:6]}...{key[-4:]}" if has_key and len(key) > 10 else ("***" if has_key else "")
@@ -158,8 +159,8 @@ async def get_config():
         "has_gemini_key": has_key,
         "masked_key": masked,
         "default_engine": "gemini" if has_key else "local",
-        "local_ip": LOCAL_IP,
-        "remote_url": f"http://{LOCAL_IP}:8000/remote"
+        "local_ip": curr_ip,
+        "remote_url": f"http://{curr_ip}:8000/remote"
     }
 
 @app.post("/api/predict")
@@ -787,7 +788,7 @@ DESKTOP_HTML = f"""<!DOCTYPE html>
       <!-- Código QR -->
       <div class="flex flex-col items-center justify-center p-4 bg-white rounded-2xl shadow-lg">
         <img id="qrImage" src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=http://{LOCAL_IP}:8000/remote" alt="QR Celular" class="w-48 h-48 rounded-lg">
-        <p class="text-[11px] text-gray-600 font-mono mt-2 font-bold">http://{LOCAL_IP}:8000/remote</p>
+        <p id="qrText" class="text-[11px] text-gray-600 font-mono mt-2 font-bold">http://{LOCAL_IP}:8000/remote</p>
       </div>
 
       <div class="bg-gray-900/80 p-3 rounded-xl border border-gray-800 text-xs text-gray-300 space-y-1">
@@ -1172,7 +1173,15 @@ DESKTOP_HTML = f"""<!DOCTYPE html>
     }}
 
     // Modales
-    function openPhoneModal() {{
+    async function openPhoneModal() {{
+      try {{
+        const resp = await fetch("/api/config");
+        const cfg = await resp.json();
+        if (cfg.remote_url) {{
+          document.getElementById("qrImage").src = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=" + encodeURIComponent(cfg.remote_url);
+          document.getElementById("qrText").innerText = cfg.remote_url;
+        }}
+      }} catch (e) {{}}
       const m = document.getElementById("phoneModal");
       m.classList.remove("hidden");
       m.classList.add("flex");
@@ -1243,11 +1252,15 @@ DESKTOP_HTML = f"""<!DOCTYPE html>
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
-    return HTMLResponse(content=DESKTOP_HTML)
+    curr_ip = get_local_ip()
+    content = DESKTOP_HTML.replace("{LOCAL_IP}", curr_ip)
+    return HTMLResponse(content=content)
 
 @app.get("/remote", response_class=HTMLResponse)
 async def serve_remote():
-    return HTMLResponse(content=REMOTE_HTML)
+    curr_ip = get_local_ip()
+    content = REMOTE_HTML.replace("{LOCAL_IP}", curr_ip)
+    return HTMLResponse(content=content)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))

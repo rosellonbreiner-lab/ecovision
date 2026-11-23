@@ -8,5 +8,10 @@ echo   Abriendo navegador en: http://localhost:8000
 echo =======================================================
 cd /d "%~dp0"
 start "" http://localhost:8000
-..\.venv\Scripts\python.exe web_app.py
+set "PYTHONPATH=%~dp0..\.venv\Lib\site-packages;%PYTHONPATH%"
+if exist "C:\Python313\python.exe" (
+    C:\Python313\python.exe web_app.py
+) else (
+    ..\.venv\Scripts\python.exe web_app.py
+)
 pause
