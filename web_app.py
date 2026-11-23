@@ -241,8 +241,8 @@ REMOTE_HTML = f"""<!DOCTYPE html>
     </div>
   </header>
 
-  <!-- Visor de Cámara de Alta Resolución -->
-  <div class="relative flex-1 flex items-center justify-center overflow-hidden">
+  <!-- Visor de Cámara / Modo Video Continuo -->
+  <div id="phoneVideoContainer" class="relative flex-1 flex items-center justify-center overflow-hidden">
     <video id="phoneVideo" autoplay playsinline muted class="w-full h-full object-cover"></video>
     <canvas id="sendCanvas" class="hidden"></canvas>
     
@@ -252,13 +252,45 @@ REMOTE_HTML = f"""<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- Vista Modo Foto Nativa (Funciona 100% sobre HTTP sin restricciones) -->
+  <div id="fallbackView" class="hidden flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4">
+    <div class="w-20 h-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-lg shadow-emerald-500/10">
+      <i data-lucide="camera" class="w-10 h-10"></i>
+    </div>
+    <div>
+      <h2 class="text-lg font-bold text-white">Cámara Móvil HD Conectada</h2>
+      <p class="text-xs text-gray-400 mt-1 max-w-xs">Toma fotos de alta resolución de cualquier residuo para enviarlas instantáneamente a la pantalla del computador.</p>
+    </div>
+
+    <!-- Botón Grande de Captura con Cámara Nativa -->
+    <label class="w-full max-w-xs py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-bold text-sm shadow-xl shadow-emerald-600/30 flex items-center justify-center space-x-2 cursor-pointer active:scale-95 transition">
+      <i data-lucide="aperture" class="w-5 h-5"></i>
+      <span>Tomar Foto del Residuo</span>
+      <input type="file" id="nativePhotoInput" accept="image/*" capture="environment" class="hidden" onchange="handleNativePhoto(this)">
+    </label>
+
+    <!-- Miniatura de última foto enviada -->
+    <div id="lastSentBox" class="hidden flex items-center space-x-2 p-2 rounded-xl bg-gray-900 border border-emerald-500/30">
+      <img id="lastSentThumb" class="w-10 h-10 rounded-lg object-cover border border-gray-700" alt="Última foto">
+      <div class="text-left text-xs">
+        <p class="text-emerald-400 font-bold">¡Foto enviada al PC!</p>
+        <p class="text-[10px] text-gray-500">Analizando en pantalla...</p>
+      </div>
+    </div>
+
+    <!-- Guía para video continuo -->
+    <div class="p-3 rounded-xl bg-gray-950/80 border border-gray-800 text-[11px] text-gray-400 text-left max-w-xs space-y-1">
+      <p class="font-bold text-cyan-300">💡 ¿Prefieres transmisión de video en vivo?</p>
+      <p class="text-[10px] leading-relaxed">Chrome en Android exige habilitar la red local: escribe <b>chrome://flags</b> en tu celular, busca <i>Insecure origins</i>, añade <b>http://{LOCAL_IP}:8000</b> y reinicia Chrome.</p>
+    </div>
+  </div>
+
   <!-- Barra de Acciones Móvil -->
   <footer class="p-4 bg-gray-950/90 backdrop-blur-md flex flex-col space-y-2 z-10 border-t border-gray-800">
     <div class="flex items-center justify-between text-xs text-gray-400">
-      <span>Transmitiendo en tiempo real a la PC</span>
-      <span id="fpsCounter" class="font-mono text-cyan-400 font-bold">-- FPS</span>
+      <span>Enlazado con EcoVision PC</span>
+      <span id="fpsCounter" class="font-mono text-cyan-400 font-bold">Listo</span>
     </div>
-    <p class="text-[11px] text-gray-500 text-center">Mantén la pantalla encendida mientras realizas la demostración.</p>
   </footer>
 
   <script>
@@ -272,7 +304,34 @@ REMOTE_HTML = f"""<!DOCTYPE html>
     let framesSent = 0;
     let lastFpsTime = performance.now();
 
+    function connectWebSocket() {{
+      const loc = window.location;
+      const wsUrl = (loc.protocol === "https:" ? "wss://" : "ws://") + loc.host + "/ws/phone_cam?role=phone";
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {{
+        document.getElementById("connStatus").innerText = "Conectado";
+        document.getElementById("connStatus").className = "text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono";
+      }};
+
+      ws.onclose = () => {{
+        document.getElementById("connStatus").innerText = "Reconectando...";
+        document.getElementById("connStatus").className = "text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono";
+        setTimeout(connectWebSocket, 2000);
+      }};
+    }}
+
     async function initPhoneCamera() {{
+      connectWebSocket();
+
+      // Si el navegador móvil bloquea getUserMedia por ser HTTP
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {{
+        document.getElementById("phoneVideoContainer").classList.add("hidden");
+        document.getElementById("fallbackView").classList.remove("hidden");
+        document.getElementById("torchBtn").classList.add("hidden");
+        return;
+      }}
+
       try {{
         const stream = await navigator.mediaDevices.getUserMedia({{
           video: {{
@@ -283,36 +342,56 @@ REMOTE_HTML = f"""<!DOCTYPE html>
         }});
         video.srcObject = stream;
         track = stream.getVideoTracks()[0];
-        connectWebSocket();
+        startStreaming();
       }} catch (err) {{
-        alert("Error al abrir cámara en el celular: " + err.message);
+        document.getElementById("phoneVideoContainer").classList.add("hidden");
+        document.getElementById("fallbackView").classList.remove("hidden");
+        document.getElementById("torchBtn").classList.add("hidden");
       }}
     }}
 
-    function connectWebSocket() {{
-      const loc = window.location;
-      const wsUrl = (loc.protocol === "https:" ? "wss://" : "ws://") + loc.host + "/ws/phone_cam?role=phone";
-      ws = new WebSocket(wsUrl);
+    function handleNativePhoto(input) {{
+      if (input.files && input.files[0]) {{
+        const file = input.files[0];
+        const reader = new FileReader();
+        reader.onload = (e) => {{
+          const img = new Image();
+          img.onload = () => {{
+            // Redimensionar para envío instantáneo sin retrasos
+            const maxDim = 800;
+            let w = img.width;
+            let h = img.height;
+            if (w > maxDim || h > maxDim) {{
+              if (w > h) {{
+                h = Math.round((h * maxDim) / w);
+                w = maxDim;
+              }} else {{
+                w = Math.round((w * maxDim) / h);
+                h = maxDim;
+              }}
+            }}
+            canvas.width = w;
+            canvas.height = h;
+            ctx.drawImage(img, 0, 0, w, h);
+            const b64 = canvas.toDataURL("image/jpeg", 0.75);
 
-      ws.onopen = () => {{
-        document.getElementById("connStatus").innerText = "En Vivo";
-        document.getElementById("connStatus").className = "text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono";
-        startStreaming();
-      }};
+            if (ws && ws.readyState === WebSocket.OPEN) {{
+              ws.send(b64);
+            }}
 
-      ws.onclose = () => {{
-        document.getElementById("connStatus").innerText = "Reconectando...";
-        document.getElementById("connStatus").className = "text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono";
-        setTimeout(connectWebSocket, 2000);
-      }};
+            document.getElementById("lastSentThumb").src = b64;
+            document.getElementById("lastSentBox").classList.remove("hidden");
+            document.getElementById("fpsCounter").innerText = "Foto enviada";
+          }};
+          img.src = e.target.result;
+        }};
+        reader.readAsDataURL(file);
+      }}
     }}
 
     function startStreaming() {{
-      // Enviar fotogramas comprimidos a 15-20 FPS para máxima fluidez y bajo retardo
       setInterval(() => {{
         if (!ws || ws.readyState !== WebSocket.OPEN || video.videoWidth === 0) return;
-        
-        // Redimensionar para transmisión rápida sin saturar Wi-Fi
         canvas.width = 640;
         canvas.height = 480;
         ctx.drawImage(video, 0, 0, 640, 480);
@@ -336,7 +415,7 @@ REMOTE_HTML = f"""<!DOCTYPE html>
         await track.applyConstraints({{ advanced: [{{ torch: isTorchOn }}] }});
         document.getElementById("torchBtn").className = isTorchOn ? "px-3 py-1 bg-yellow-500 text-black rounded-lg text-xs font-bold flex items-center space-x-1" : "px-3 py-1 bg-gray-800 rounded-lg text-xs font-semibold flex items-center space-x-1 border border-gray-700";
       }} catch (e) {{
-        alert("Tu dispositivo no soporta encendido de linterna desde el navegador.");
+        alert("Tu dispositivo no soporta linterna desde el navegador.");
       }}
     }}
 
@@ -824,6 +903,7 @@ DESKTOP_HTML = f"""<!DOCTYPE html>
             if (currentSource === "phone") {{
               phoneImg.src = msg.image;
               isPhoneStreaming = true;
+              triggerScan(false);
             }}
           }}
         }} catch (e) {{
