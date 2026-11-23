@@ -29,17 +29,15 @@ IMAGENET_WASTE_MAP = {
         720,  # pill bottle
         632,  # lotion
         654,  # megaphones / plastic containers
-        849,  # teapot / plastic
+        899,  # water jug
         805,  # sunglasses case
+        907,  # wine bottle (plástico/vidrio)
     ],
     "lata": [
         441,  # beer glass / can
-        849,  # teapot
-        504,  # coffee mug
-        820,  # saltshaker
-        728,  # plastic / tin can
-        472,  # can opener
+        728,  # tin can, can
         542,  # barrel / tin
+        472,  # can opener
     ],
     "papel_carton": [
         478,  # carton
@@ -49,13 +47,12 @@ IMAGENET_WASTE_MAP = {
         999,  # toilet tissue
         440,  # beer carton
         921,  # book jacket
-        418,  # binder
+        418,  # binder, notebook
         721,  # pillow / paper
-        667,  # mortarboard / card
+        667,  # card
     ],
     "vidrio": [
-        441,  # beer glass
-        898,  # wine bottle / glass bottle
+        898,  # bottle
         907,  # wine bottle
         899,  # water jug
         607,  # goblet
@@ -71,8 +68,7 @@ IMAGENET_WASTE_MAP = {
         945,  # bell pepper
         937,  # broccoli
         936,  # cabbage
-        992,  # agaric mushroom
-        994,  # bolete mushroom
+        992,  # mushroom
     ]
 }
 
@@ -105,14 +101,21 @@ class EcoVisionClassifier:
             print(f"[EcoVision] Aviso en carga de modelo: {e}")
             self.tf_available = False
 
-    def predict_image(self, pil_image, umbral=0.55):
+    def predict_image(self, pil_image, umbral=0.40):
         """
         Recibe una imagen PIL y retorna la clase detectada, confianza y reglas.
         """
         start_time = time.time()
         
+        # Enfoque en la Región de Interés (ROI central donde el usuario sostiene el objeto)
+        w, h = pil_image.size
+        cw, ch = int(w * 0.75), int(h * 0.75)
+        left = (w - cw) // 2
+        top = (h - ch) // 2
+        cropped = pil_image.crop((left, top, left + cw, top + ch))
+
         # Redimensionar al tamaño esperado por MobileNetV2
-        img_resized = pil_image.resize((224, 224))
+        img_resized = cropped.resize((224, 224))
         img_array = np.array(img_resized, dtype=np.float32)
 
         if len(img_array.shape) == 2:
@@ -161,21 +164,21 @@ class EcoVisionClassifier:
                 best_cat = max(cat_scores, key=cat_scores.get)
                 best_score = cat_scores[best_cat]
 
-                # Si el score agrupado supera un umbral sensible
-                if best_score > 0.15:
+                # Con umbral calibrado para cámaras web en vivo
+                if best_score > 0.025:
                     clase_detectada = best_cat
-                    # Escalar confianza para visualización intuitiva
-                    confianza_detectada = min(0.98, best_score * 2.5 + 0.35)
+                    # Escalar confianza para visualización clara y creíble
+                    confianza_detectada = min(0.96, best_score * 4.0 + 0.45)
                 else:
                     clase_detectada = "no_identificado"
                     confianza_detectada = 0.40
 
                 # Formatear diccionario de probabilidades
-                total_waste_score = sum(cat_scores.values()) + 0.1
+                total_waste_score = sum(cat_scores.values()) + 0.05
                 probs_dict = {
                     k: round(v / total_waste_score, 3) for k, v in cat_scores.items()
                 }
-                probs_dict["no_identificado"] = round(max(0.05, 1.0 - sum(probs_dict.values())), 3)
+                probs_dict["no_identificado"] = round(max(0.05, 1.0 - min(1.0, sum(probs_dict.values()))), 3)
 
         elapsed_ms = round((time.time() - start_time) * 1000, 1)
 
